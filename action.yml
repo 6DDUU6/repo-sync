@@ -1,0 +1,153 @@
+name: Sync Repository
+author: zjns
+description: Sync repository
+
+inputs:
+  up_owner:
+    description: Optional, upstream repository owner, default using parent if is a fork repository.
+    required: false
+    default: ''
+
+  token:
+    description: Optional, github token, no push event triggered if using 'secrets.GITHUB_TOKEN' or 'github.token'.
+    required: false
+    default: ${{ github.token }}
+
+  branch:
+    description: Optional, branch to be updated
+    required: false
+    default: ${{ github.ref_name }}
+
+  up_branch:
+    description: Optional, upstream branch to be sycned
+    required: false
+    default: ${{ github.ref_name }}
+
+  method:
+    description: Optional, method to sync repo, one of [rebase, merge, hardreset]
+    required: false
+    default: rebase
+
+outputs:
+  commit_count:
+    description: Synced commit count
+    value: ${{ steps.merge.outputs.diff_count }}
+
+  commits:
+    description: Synced commits, json format, like '[{"author":"sam","committer":"sam","message":"hello!"}]'
+    value: ${{ steps.merge.outputs.diff }}
+
+runs:
+  using: 'composite'
+
+  steps:
+    - name: Clone
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+        submodules: recursive
+        token: ${{ inputs.token }}
+        ref: ${{ inputs.branch }}
+
+    - name: Get up repo owner
+      shell: bash
+      id: get-up_owner
+      run: |
+        up_owner="${{ inputs.up_owner }}"
+        if [ -n "$up_owner" ]; then
+          echo "::set-output name=up_owner::$up_owner"
+          exit 0
+        fi
+
+        token="${{ inputs.token }}"
+        repo="${GITHUB_REPOSITORY##*/}"
+        owner="${GITHUB_REPOSITORY%%/*}"
+        pip3 install -U urllib3
+
+        py_get_up_owner=$(cat <<EOM
+        import json
+        from urllib3 import PoolManager
+        from urllib3.exceptions import HTTPError
+
+        def request(url, method='GET'):
+          http = PoolManager()
+          response = http.request(method, url)
+          data = json.loads(response.data.decode('utf-8'))
+          return data
+
+        url = 'https://$token@api.github.com/repos/$owner/$repo'
+        try:
+          response = request(url)
+          full_name = response['parent']['full_name']
+          print(full_name.split('/')[0])
+        except Exception:
+          print('')
+        EOM
+        )
+
+        up_owner="`python3 -c "$py_get_up_owner"`"
+        echo "::set-output name=up_owner::$up_owner"
+
+    - name: Merge upstream
+      shell: bash
+      id: merge
+      run: |
+        token="${{ inputs.token }}"
+        repo="${GITHUB_REPOSITORY##*/}"
+        branch="${{ inputs.branch }}"
+        up_branch="${{ inputs.up_branch }}"
+        up_owner="${{ steps.get-up_owner.outputs.up_owner }}"
+        method="${{ inputs.method }}"
+
+        echo "::set-output name=diff_count::0"
+        echo "::set-output name=diff::[]"
+
+        user_info="`curl https://$token@api.github.com/user --silent`"
+        user="`echo "$user_info" | sed -n 's/.*"login":[ ]*"\(.*\)".*/\1/p'`"
+        email="`echo "$user_info" | sed -n 's/.*"email":[ ]*"\(.*\)".*/\1/p'`"
+        echo "::add-mask::$user"
+        echo "::add-mask::$email"
+
+        git config --global user.name "$user"
+        git config --global user.email "$email"
+        git remote add upstream https://github.com/$up_owner/$repo.git
+        git fetch upstream $up_branch
+
+        diff_count=`git rev-list --count upstream/$up_branch ^$branch`
+        if [ $diff_count != 0 ]; then
+          IFS=$(echo -en "\n\b")
+          function join { local IFS="$1"; shift; echo "$*"; }
+
+          format='{"author":"%an","committer":"%cn","message":"%s"}'
+          diff=(`git log --pretty=format:$format upstream/$up_branch ^$branch`)
+          diff_json="[`join , ${diff[@]}`]"
+        else
+          echo "Do nothing, branch $branch is up to date."
+          echo "::set-output name=diff_count::0"
+          echo "::set-output name=diff::[]"
+          exit 0
+        fi
+
+        if [ "$method" = "rebase" ]; then
+          echo "::set-output name=diff_count::$diff_count"
+          echo "::set-output name=diff::$diff_json"
+          git rebase upstream/$up_branch
+        elif [ "$method" = "merge" ]; then
+          echo "::set-output name=diff_count::$diff_count"
+          echo "::set-output name=diff::$diff_json"
+          git merge --no-edit upstream/$up_branch
+        elif [ "$method" = "hardreset" ]; then
+          echo "::set-output name=diff_count::0"
+          echo "::set-output name=diff::[]"
+          git reset --hard upstream/$up_branch
+        else
+          echo "Invalid method $method to sync."
+          exit 1
+        fi
+        result=$?
+        if [ $result == 0 ]; then
+          git push --force
+        else
+          echo "Sync failed, exit code: $result."
+          exit $result
+        fi
