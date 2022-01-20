@@ -9,7 +9,7 @@ inputs:
     default: ''
 
   token:
-    description: Optional, github token, no push event triggered if using 'secrets.GITHUB_TOKEN' or 'github.token'.
+    description: Optional, Github token, no push event triggered if using 'secrets.GITHUB_TOKEN' or 'github.token'.
     required: false
     default: ${{ github.token }}
 
@@ -69,6 +69,8 @@ runs:
         git_user_signingkey: true
         git_commit_gpgsign: true
         git_tag_gpgsign: true
+        # not supported with GitHub
+        git_push_gpgsign: 'no'
 
     - name: Get up repo owner
       shell: bash
@@ -119,6 +121,7 @@ runs:
         up_branch="${{ inputs.up_branch }}"
         up_owner="${{ steps.get-up_owner.outputs.up_owner }}"
         method="${{ inputs.method }}"
+        owner="${GITHUB_REPOSITORY%%/*}"
 
         echo "::set-output name=diff_count::0"
         echo "::set-output name=diff::[]"
@@ -126,6 +129,8 @@ runs:
         user_info="`curl https://$token@api.github.com/user --silent`"
         user="`echo "$user_info" | sed -n 's/.*"login":[ ]*"\(.*\)".*/\1/p'`"
         email="`echo "$user_info" | sed -n 's/.*"email":[ ]*"\(.*\)".*/\1/p'`"
+        [ -z "$user" ] && user="$owner"
+        [ -z "$email" ] && email="$owner@example.com"
         echo "::add-mask::$user"
         echo "::add-mask::$email"
 
