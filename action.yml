@@ -3,8 +3,8 @@ author: zjns
 description: Sync repository
 
 inputs:
-  up_owner:
-    description: Optional, upstream repository owner, default using parent if is a fork repository.
+  up_repo:
+    description: Optional, upstream repository, like 'owner/example_repo', default using parent if is a fork repository.
     required: false
     default: ''
 
@@ -72,25 +72,23 @@ runs:
         # not supported with GitHub
         git_push_gpgsign: 'no'
 
-    - name: Get up repo owner
+    - name: Get up repo
       shell: bash
-      id: get-up_owner
+      id: get-up_repo
       run: |
-        up_owner="${{ inputs.up_owner }}"
-        if [ -n "$up_owner" ]; then
-          echo "::set-output name=up_owner::$up_owner"
+        up_repo="${{ inputs.up_repo }}"
+        if [ -n "$up_repo" ]; then
+          echo "::set-output name=up_repo::$up_repo"
           exit 0
         fi
 
         token="${{ inputs.token }}"
-        repo="${GITHUB_REPOSITORY##*/}"
-        owner="${GITHUB_REPOSITORY%%/*}"
+        repo="$GITHUB_REPOSITORY"
         pip3 install -U urllib3
 
-        py_get_up_owner=$(cat <<EOM
+        py_get_up_repo=$(cat <<EOM
         import json
         from urllib3 import PoolManager
-        from urllib3.exceptions import HTTPError
 
         def request(url, method='GET'):
           http = PoolManager()
@@ -98,28 +96,27 @@ runs:
           data = json.loads(response.data.decode('utf-8'))
           return data
 
-        url = 'https://$token@api.github.com/repos/$owner/$repo'
+        url = 'https://$token@api.github.com/repos/$repo'
         try:
           response = request(url)
           full_name = response['parent']['full_name']
-          print(full_name.split('/')[0])
+          print(full_name)
         except Exception:
           print('')
         EOM
         )
 
-        up_owner="`python3 -c "$py_get_up_owner"`"
-        echo "::set-output name=up_owner::$up_owner"
+        up_repo="`python3 -c "$py_get_up_repo"`"
+        echo "::set-output name=up_repo::$up_repo"
 
     - name: Merge upstream
       shell: bash
       id: merge
       run: |
         token="${{ inputs.token }}"
-        repo="${GITHUB_REPOSITORY##*/}"
         branch="${{ inputs.branch }}"
         up_branch="${{ inputs.up_branch }}"
-        up_owner="${{ steps.get-up_owner.outputs.up_owner }}"
+        up_repo="${{ steps.get-up_repo.outputs.up_repo }}"
         method="${{ inputs.method }}"
         owner="${GITHUB_REPOSITORY%%/*}"
 
@@ -136,7 +133,7 @@ runs:
 
         git config --global user.name "$user"
         git config --global user.email "$email"
-        git remote add upstream https://github.com/$up_owner/$repo.git
+        git remote add upstream https://github.com/$up_repo.git
         git fetch upstream $up_branch
 
         diff_count=`git rev-list --count upstream/$up_branch ^$branch`
