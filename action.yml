@@ -123,7 +123,7 @@ runs:
         echo "diff_count=0" >> $GITHUB_OUTPUT
         echo "diff=[]" >> $GITHUB_OUTPUT
 
-        user_info="`curl https://$token@api.github.com/user --silent`"
+        user_info="`curl https://$token@api.github.com/user --silent -H "Authorization: token ${{ inputs.token }}"`"
         user="`echo "$user_info" | sed -n 's/.*"login":[ ]*"\(.*\)".*/\1/p'`"
         email="`echo "$user_info" | sed -n 's/.*"email":[ ]*"\(.*\)".*/\1/p'`"
         [ -z "$user" ] && user="$owner"
