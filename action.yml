@@ -60,6 +60,7 @@ runs:
         ref: ${{ inputs.branch }}
 
     - name: Config submodules
+      shell: bash
       run: |
         git -C "libs/LSPlant" config "submodule.test/src/main/jni/external/lsprism.update" none
         git -C "libs/LSPlant" config "submodule.test/src/main/jni/external/lsparself.update" none
