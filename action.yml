@@ -52,12 +52,20 @@ runs:
 
   steps:
     - name: Clone
-      uses: actions/checkout@v3
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       with:
         fetch-depth: 0
-        submodules: recursive
+        submodules: 'true'
         token: ${{ inputs.token }}
         ref: ${{ inputs.branch }}
+
+    - name: Config submodules
+      run: |
+        git -C "libs/LSPlant" config "submodule.test/src/main/jni/external/lsprism.update" none
+        git -C "libs/LSPlant" config "submodule.test/src/main/jni/external/lsparself.update" none
+        git -C "libs/LSPlant" config "submodule.docs/doxygen-awesome-css.update" none
+        git -C "libs/mmkv/MMKV" config "submodule.Python/pybind11.update" none
+        git submodule foreach git submodule update --init --recursive
 
     - name: Import GPG key
       id: import_gpg
